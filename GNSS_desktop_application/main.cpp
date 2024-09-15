@@ -14,5 +14,4 @@ int main(int argc, char *argv[])
     GNSS_desktop_application w;
     w.show();
     return a.exec();
-
 }

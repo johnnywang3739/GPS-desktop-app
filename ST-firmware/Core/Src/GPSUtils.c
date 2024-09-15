@@ -8,8 +8,6 @@
 
 #include "GPSUtils.h"
 #include <stdio.h>
-
-
 void parseGSV(const char *sentence, GSV_Data *data, SatelliteData *satellite_data) {
     char sentence_copy[UART_BUFFER_SIZE];
     strncpy(sentence_copy, sentence, UART_BUFFER_SIZE);
@@ -19,47 +17,118 @@ void parseGSV(const char *sentence, GSV_Data *data, SatelliteData *satellite_dat
     char *end = strchr(start, ',');
     int field = 0;
     int sat_index = 0;
+    char signal_id[4];  // Signal ID as a string
+    int signal_type = -1;  // Signal type (L1, L5, etc.)
 
-    // Resetting the number of satellites to 0
-    data->num_satellites = 0;
+    // Parse the sentence to identify if it belongs to L1 or L5
+    if (strstr(sentence, "GPGSV,") != NULL) {
+        // Check if the last character before '*' is '1' for L1 or '8' for L5
+        char *checksum_ptr = strchr(start, '*');
+        if (checksum_ptr != NULL && *(checksum_ptr - 1) == '1') {
+            signal_type = 1;  // L1 Signal
+        } else if (checksum_ptr != NULL && *(checksum_ptr - 1) == '8') {
+            signal_type = 8;  // L5 Signal
+        }
+    }
 
+    // Loop through the fields in the sentence
     while (end != NULL) {
         *end = '\0';
 
         switch (field) {
             case 0:
+                // Talker ID (extract first two characters after '$')
                 strncpy(data->talker_id, start + 1, 2);
                 data->talker_id[2] = '\0';
                 break;
             case 1:
+                // Total number of sentences in this GSV message
                 data->total_num_sentences = atoi(start);
                 break;
             case 2:
+                // Current sentence number
                 data->current_sentence_number = atoi(start);
                 break;
             case 3:
+                // Total number of satellites in view
                 data->total_num_sats_in_view = atoi(start);
                 break;
             default:
                 // Satellite fields start from field 4 onward
                 if ((field - 4) % 4 == 0) {
-                    // Parsing SatID
+                    // Parse Satellite ID
                     if (sat_index >= data->num_satellites) {
                         data->num_satellites++;
                         data->satellites = realloc(data->satellites, data->num_satellites * sizeof(SatelliteInfo));
+                        if (data->satellites == NULL) {
+                            printf("Memory allocation failed\n");
+                            return;
+                        }
                     }
-                    data->satellites[sat_index].sat_id = atoi(start);
+
+                    if (*start != '\0') {
+                        data->satellites[sat_index].sat_id = atoi(start);
+                    } else {
+                        data->satellites[sat_index].sat_id = -1;  // Missing sat_id
+                    }
+
+                    // Copy talker ID to satellite data
                     strncpy(data->satellites[sat_index].talker_id, data->talker_id, sizeof(data->satellites[sat_index].talker_id));
+
                 } else if ((field - 5) % 4 == 0) {
-                    // Parsing Elevation
-                    data->satellites[sat_index].elevation = atoi(start);
+                    // Parse elevation (or -1 if missing)
+                    data->satellites[sat_index].elevation = (*start != '\0') ? atoi(start) : -1;
+
                 } else if ((field - 6) % 4 == 0) {
-                    // Parsing Azimuth
-                    data->satellites[sat_index].azimuth = atoi(start);
+                    // Parse azimuth (or -1 if missing)
+                    data->satellites[sat_index].azimuth = (*start != '\0') ? atoi(start) : -1;
+
                 } else if ((field - 7) % 4 == 0) {
-                    // Parsing SNR
-                    data->satellites[sat_index].snr = atoi(start);
-                    sat_index++;
+                    // Parse SNR for the signal (L1 or L5)
+                    int snr_value = (*start != '\0') ? atoi(start) : -1;
+
+                    // Assign signal ID based on the signal type and GNSS type
+                    if (strncmp(data->talker_id, "GP", 2) == 0) {
+                        strncpy(signal_id, (signal_type == 1) ? "L1" : "L5", sizeof(signal_id));
+                    } else if (strncmp(data->talker_id, "GL", 2) == 0) {
+                        strncpy(signal_id, "L1", sizeof(signal_id));  // GLONASS only has L1
+                    } else if (strncmp(data->talker_id, "GA", 2) == 0) {
+                        strncpy(signal_id, (signal_type == 1) ? "E5a" : "E1", sizeof(signal_id));
+                    } else if (strncmp(data->talker_id, "GB", 2) == 0) {
+                        strncpy(signal_id, (signal_type == 1) ? "B1I" : "B2a", sizeof(signal_id));
+                    }
+
+                    // Find the satellite in the satellite data and update its signal information
+                    int found = 0;
+                    for (int j = 0; j < satellite_data->num_satellites; j++) {
+                        if (satellite_data->satellites[j].sat_id == data->satellites[sat_index].sat_id) {
+                            if (satellite_data->satellites[j].num_signals < 2) {
+                                // Add signal data to the satellite
+                                strncpy(satellite_data->satellites[j].signals[satellite_data->satellites[j].num_signals].signal_id, signal_id, sizeof(satellite_data->satellites[j].signals[satellite_data->satellites[j].num_signals].signal_id));
+                                satellite_data->satellites[j].signals[satellite_data->satellites[j].num_signals].snr = snr_value;
+                                satellite_data->satellites[j].num_signals++;
+                            }
+                            found = 1;
+                            break;
+                        }
+                    }
+
+                    if (!found && data->satellites[sat_index].sat_id != -1) {
+                        // Add new satellite if it wasn't found
+                        satellite_data->num_satellites++;
+                        satellite_data->satellites = realloc(satellite_data->satellites, satellite_data->num_satellites * sizeof(SatelliteInfo));
+                        if (satellite_data->satellites == NULL) {
+                            printf("Memory allocation failed\n");
+                            return;
+                        }
+
+                        satellite_data->satellites[satellite_data->num_satellites - 1] = data->satellites[sat_index];
+                        strncpy(satellite_data->satellites[satellite_data->num_satellites - 1].signals[0].signal_id, signal_id, sizeof(satellite_data->satellites[satellite_data->num_satellites - 1].signals[0].signal_id));
+                        satellite_data->satellites[satellite_data->num_satellites - 1].signals[0].snr = snr_value;
+                        satellite_data->satellites[satellite_data->num_satellites - 1].num_signals = 1;
+                    }
+
+                    sat_index++;  // Move to the next satellite after processing 4 fields
                 }
                 break;
         }
@@ -68,39 +137,7 @@ void parseGSV(const char *sentence, GSV_Data *data, SatelliteData *satellite_dat
         end = strchr(start, ',');
         field++;
     }
-
-//
-//    printf("GSV Parsing Debug:\r\n");
-//    printf("Total Sentences: %d\r\n", data->total_num_sentences);
-//    printf("Current Sentence: %d\r\n", data->current_sentence_number);
-//    printf("Total Satellites in View: %d\r\n", data->total_num_sats_in_view);
-//    printf("Parsed Satellites: %d\r\n", data->num_satellites);
-
-//    for (int i = 0; i < data->num_satellites; i++) {
-//        printf("%s Satellite %d - ID: %d, Elevation: %d, Azimuth: %d, SNR: %d\r\n",
-//        		data->satellites[i].talker_id, i, data->satellites[i].sat_id, data->satellites[i].elevation,
-//               data->satellites[i].azimuth, data->satellites[i].snr);
-//    }
-
-    // Update the satellite data structure
-    if (data->num_satellites > 0) {
-        for (int i = 0; i < data->num_satellites; i++) {
-            int found = 0;
-            for (int j = 0; j < satellite_data->num_satellites; j++) {
-                if (satellite_data->satellites[j].sat_id == data->satellites[i].sat_id) {
-                    found = 1;
-                    break;
-                }
-            }
-            if (!found) {
-                satellite_data->num_satellites++;
-                satellite_data->satellites = realloc(satellite_data->satellites, satellite_data->num_satellites * sizeof(SatelliteInfo));
-                satellite_data->satellites[satellite_data->num_satellites - 1] = data->satellites[i];
-            }
-        }
-    }
 }
-//
 
 
 void parseGNGGA(const char *sentence, GNGGA_Data *data) {
@@ -389,3 +426,75 @@ void parseGNVTG(const char *sentence, GNVTG_Data *data) {
         strncpy(data->checksum, checksum_ptr, 2);
     }
 }
+void parseGNGSA(const char *sentence, GSA_Talker_Data *data) {
+    char sentence_copy[UART_BUFFER_SIZE];
+    strncpy(sentence_copy, sentence, UART_BUFFER_SIZE);
+    sentence_copy[UART_BUFFER_SIZE - 1] = '\0';  // Ensure null-termination
+
+    memset(data, 0, sizeof(GSA_Talker_Data));  // Clear the structure
+
+    char *start = sentence_copy;
+    char *end = strchr(start, ',');
+    int field = 0;
+    int sat_index = 0;
+
+    while (end != NULL) {
+        *end = '\0';  // Split the sentence at each comma
+        switch (field) {
+            case 1:  // Mode (A=Automatic, M=Manual)
+                strncpy(data->mode, start, sizeof(data->mode) - 1);
+                break;
+            case 2:  // Fix Mode (1=No fix, 2=2D fix, 3=3D fix)
+                strncpy(data->fix_mode, start, sizeof(data->fix_mode) - 1);
+                break;
+            case 3 ... 14:  // Satellite IDs (Up to 12)
+                if (*start != '\0') {
+                    // Convert satellite ID to integer and store as a string without leading zeros
+                    int sat_id = atoi(start); // This will automatically handle leading zeros
+                    snprintf(data->sat_ids[sat_index++], sizeof(data->sat_ids[0]), "%d", sat_id);
+                    data->active_satellites++;  // Increment the count of active satellites
+                }
+                break;
+            case 15:  // PDOP (Positional Dilution of Precision)
+                strncpy(data->pdop, start, sizeof(data->pdop) - 1);
+                break;
+            case 16:  // HDOP (Horizontal Dilution of Precision)
+                strncpy(data->hdop, start, sizeof(data->hdop) - 1);
+                break;
+            case 17:  // VDOP (Vertical Dilution of Precision)
+                strncpy(data->vdop, start, sizeof(data->vdop) - 1);
+                break;
+        }
+
+        start = end + 1;  // Move to the next field
+        end = strchr(start, ',');
+        field++;
+    }
+
+    char *checksum_start = strchr(start, '*');  // Find the start of the checksum
+    if (checksum_start != NULL && checksum_start > start) {
+        // The last number before the '*' is the System ID (Talker ID)
+        char talker_id = *(checksum_start - 1);  // Get the character before '*'
+
+        // Map the number to the System ID
+        switch (talker_id) {
+            case '1':  // GPS (GP)
+                strncpy(data->system_id, "GP", sizeof(data->system_id) - 1);
+                break;
+            case '2':  // GLONASS (GL)
+                strncpy(data->system_id, "GL", sizeof(data->system_id) - 1);
+                break;
+            case '3':  // Galileo (GA)
+                strncpy(data->system_id, "GA", sizeof(data->system_id) - 1);
+                break;
+            case '4':  // Beidou (GB)
+                strncpy(data->system_id, "GB", sizeof(data->system_id) - 1);
+                break;
+            default:
+                strncpy(data->system_id, "UNKNOWN", sizeof(data->system_id) - 1);
+                break;
+        }
+    }
+}
+
+

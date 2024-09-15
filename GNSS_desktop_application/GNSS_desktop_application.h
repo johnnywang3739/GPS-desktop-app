@@ -28,7 +28,7 @@ public:
     explicit GNSS_desktop_application(QWidget* parent = nullptr);
     ~GNSS_desktop_application();
 
-    void changeLocation(double lat, double lng, double averageSNR);
+    void changeLocation(double lat, double lng, double SNR);
 protected:
     void closeEvent(QCloseEvent* event) override; // Ensure this line is present and protected
 
@@ -43,7 +43,7 @@ private slots:
 
 
 signals:
-    void locationChanged(double lat, double lng, double averageSNR);
+    void locationChanged(double lat, double lng, double SNR);
 
 private:
     Ui::GNSS_desktop_applicationClass ui;

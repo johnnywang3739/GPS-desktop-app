@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>Google Maps</title>
-    <script async src="https://maps.googleapis.com/maps/api/js?key=&callback=initMap"></script> <!-- Add API key here: key= -->
+    <script async src="https://maps.googleapis.com/maps/api/js?key=&callback=initMap"></script> <!-- Add your API key here: key=-->
     <script>
         var map;
         var realTimeMarker;
@@ -33,13 +33,13 @@
             realTimeMarker.setPosition(new google.maps.LatLng(newPosition.lat, newPosition.lng));
             map.setCenter(newPosition);
             realTimeMarker.setTitle(title);
-            updateMarkerColor(snr);
+            updateMarkerColor(snr);  // Update marker color based on SNR
             fadeInMarker();
         }
-    
+
         function updateMarkerColor(snr) {
             var color;
-    
+
             if (snr > 30) {
                 color = "green";
             } else if (snr > 25) {
@@ -51,7 +51,7 @@
             }
             realTimeMarker.setIcon("http://maps.google.com/mapfiles/ms/icons/" + color + "-dot.png");
         }
-    
+
         function fadeInMarker() {
             var opacity = 0;
             realTimeMarker.setVisible(true); 
