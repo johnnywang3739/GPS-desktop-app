@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.10.34916.146
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "GNSS_desktop_application", "GNSS_desktop_application\GNSS_desktop_application.vcxproj", "{19CB9FA0-FF37-48B5-92DB-C82351F24EDF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{19CB9FA0-FF37-48B5-92DB-C82351F24EDF}.Debug|x64.ActiveCfg = Debug|x64
+		{19CB9FA0-FF37-48B5-92DB-C82351F24EDF}.Debug|x64.Build.0 = Debug|x64
+		{19CB9FA0-FF37-48B5-92DB-C82351F24EDF}.Release|x64.ActiveCfg = Release|x64
+		{19CB9FA0-FF37-48B5-92DB-C82351F24EDF}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {18328AD4-7DEE-4770-A56D-A0ED8A12FC66}
+	EndGlobalSection
+EndGlobal

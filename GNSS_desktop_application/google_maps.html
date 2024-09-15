@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Google Maps</title>
+    <script async src="https://maps.googleapis.com/maps/api/js?key=&callback=initMap"></script> <!-- Add API key here: key= -->
+    <script>
+        var map;
+        var realTimeMarker;
+        var historicalMarkers = [];
+    
+        function initMap() {
+            var vancouver = { lat: 49.282729512222222, lng: -123.120737523456789};
+            map = new google.maps.Map(document.getElementById("map"), {
+                center: vancouver,
+                zoom: 10
+            });
+    
+
+            realTimeMarker = new google.maps.Marker({
+                position: vancouver,
+                map: map,
+                title: "Default location, no new data has been recieved",
+                visible: false, // Initialize with the marker hidden
+                icon: "http://maps.google.com/mapfiles/ms/icons/red-dot.png", 
+                opacity: 0 // Start with 0 opacity for fade-in effect
+            });
+    
+            updateWifiSignalIcon(100); // Start with full signal
+        }
+    
+        function updateMarkerPosition(lat, lng, title, snr) {
+            var newPosition = { lat: lat, lng: lng };
+            realTimeMarker.setPosition(new google.maps.LatLng(newPosition.lat, newPosition.lng));
+            map.setCenter(newPosition);
+            realTimeMarker.setTitle(title);
+            updateMarkerColor(snr);
+            fadeInMarker();
+        }
+    
+        function updateMarkerColor(snr) {
+            var color;
+    
+            if (snr > 30) {
+                color = "green";
+            } else if (snr > 25) {
+                color = "orange";
+            } else if (snr > 20) {
+                color = "yellow";
+            } else {
+                color = "red";
+            }
+            realTimeMarker.setIcon("http://maps.google.com/mapfiles/ms/icons/" + color + "-dot.png");
+        }
+    
+        function fadeInMarker() {
+            var opacity = 0;
+            realTimeMarker.setVisible(true); 
+    
+            var interval = setInterval(function() {
+                if (opacity >= 1) {
+                    clearInterval(interval);
+                } else {
+                    opacity += 0.1;
+                    realTimeMarker.setOpacity(opacity); 
+                }
+            }, 50); 
+        }
+    
+        function showRealTimeMarker() {
+            if (realTimeMarker) {
+                realTimeMarker.setVisible(true);
+                fadeInMarker(); 
+            }
+        }
+    
+        function hideRealTimeMarker() {
+            if (realTimeMarker) {
+                realTimeMarker.setVisible(false); 
+            }
+        }
+    
+        function addHistoricalMarker(lat, lng, title, snr) {
+            var color;
+    
+            if (snr > 30) {
+                color = "green";
+            } else if (snr > 25) {
+                color = "orange";
+            } else if (snr > 20) {
+                color = "yellow";
+            } else {
+                color = "red";
+            }
+    
+            var marker = new google.maps.Marker({
+                position: { lat: lat, lng: lng },
+                map: map,
+                title: title,
+                icon: "http://maps.google.com/mapfiles/ms/icons/" + color + "-dot.png",
+                opacity: 1 // Ensure the marker is fully visible immediately
+            });
+    
+            console.log(`Added historical marker at (${lat}, ${lng}) with color ${color}`);
+            historicalMarkers.push(marker);
+        }
+    
+        function clearHistoricalMarkers() {
+            for (var i = 0; i < historicalMarkers.length; i++) {
+                historicalMarkers[i].setMap(null); // Remove from map
+            }
+            historicalMarkers = []; // Clear the array
+            console.log('Historical markers cleared');
+        }
+    
+        function showHistoricalMarkers() {
+            console.log('Showing historical markers. Total markers:', historicalMarkers.length);
+            for (var i = 0; i < historicalMarkers.length; i++) {
+                historicalMarkers[i].setMap(map); // Add back to map
+                console.log(`Marker ${i} set to visible`);
+            }
+        }
+
+        function updateWifiSignalIcon(signalStrength) {
+            var bars = document.getElementsByClassName("wifi-bar");
+            for (var i = 0; i < bars.length; i++) {
+                bars[i].style.backgroundColor = "#CCCCCC"; // Default grey
+                bars[i].style.display = "none"; // Hide all bars initially
+            }
+            if (signalStrength > 75) {
+                for (var i = 0; i < 4; i++) {
+                    bars[i].style.backgroundColor = "#4CAF50"; // Green for full signal
+                    bars[i].style.display = "block";
+                }
+            } else if (signalStrength > 50) {
+                for (var i = 0; i < 3; i++) {
+                    bars[i].style.backgroundColor = "#FFC107"; // Yellow for good signal
+                    bars[i].style.display = "block";
+                }
+            } else if (signalStrength > 25) {
+                for (var i = 0; i < 2; i++) {
+                    bars[i].style.backgroundColor = "#FF9800"; // Orange for weak signal
+                    bars[i].style.display = "block";
+                }
+            } else if (signalStrength > 5) {
+                bars[0].style.backgroundColor = "#F44336"; // Red for very weak signal
+                bars[0].style.display = "block";
+            }
+        }
+
+    </script>
+    
+    <style>
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+
+        #wifi-icon-container {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            align-items: flex-end;
+        }
+
+        .wifi-bar {
+            width: 5px;
+            margin: 0 1px;
+            background-color: #CCCCCC; /* Default color */
+            display: none; /* Start hidden */
+        }
+
+        .bar1 { height: 5px; }
+        .bar2 { height: 10px; }
+        .bar3 { height: 15px; }
+        .bar4 { height: 20px; }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="wifi-icon-container">
+        <div class="wifi-bar bar1"></div>
+        <div class="wifi-bar bar2"></div>
+        <div class="wifi-bar bar3"></div>
+        <div class="wifi-bar bar4"></div>
+    </div>
+</body>
+</html>
