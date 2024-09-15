@@ -7,7 +7,6 @@
 #include <QDebug>
 
 namespace SerialPortUtils {
-
     void readSerialData(QSerialPort* serial, GNSSData& gnssData, int& updateFrequency, bool& showingRealTimeLocation, bool& recordingData, QFile& csvFile, QWebEngineView* webView, Ui::GNSS_desktop_applicationClass& ui) {
         static QByteArray buffer;
         static int validDataCount = 0;
@@ -16,112 +15,89 @@ namespace SerialPortUtils {
 
         while (true) {
             int startIdx = buffer.indexOf('$');
-            int endIdx = buffer.indexOf("&\r\n", startIdx);
-
-            if (startIdx == -1 || endIdx == -1) {
+            if (startIdx == -1) {
+                break;
+            }
+            int endIdx = buffer.indexOf("\r\n", startIdx);
+            if (endIdx == -1) {
                 break;
             }
 
-            QString sentence = QString::fromUtf8(buffer.mid(startIdx, endIdx - startIdx + 3));
-            buffer.remove(0, endIdx + 3);
+            QString sentence = QString::fromUtf8(buffer.mid(startIdx, endIdx - startIdx + 2));
+            buffer.remove(0, endIdx + 2);
 
             if (!verifyChecksum(sentence)) {
+                qDebug() << "Checksum verification failed for sentence: " << sentence;
+                ui.infoTextBox->clear();  // Clear info box before displaying invalid data
                 continue;
             }
 
             if (parseGNSSSentence(sentence, gnssData)) {
-                if (gnssData.utc_time.isEmpty() || gnssData.latitude_dd == 0.0 || gnssData.longitude_dd == 0.0) {
-                    ui.infoTextBox->clear();
-                    ui.infoTextBox->append("Invalid data received, check GPS antenna connection!");
-                    ui.infoTextBox->append("Raw Data: " + sentence); 
-                    if (showingRealTimeLocation) {
-                        QString jsCommand = "hideMarker();";
-                        webView->page()->runJavaScript(jsCommand);
-                    }
-
-                    ui.showRealTimeButton->setEnabled(false);
-                    ui.toggleRecordingButton->setEnabled(false);
-                    showingRealTimeLocation = false;
-                    continue;
-                }
-                else {
-                    ui.showRealTimeButton->setEnabled(true);
-                    ui.toggleRecordingButton->setEnabled(true);
-                }
-
-                if (gnssData.num_satellites > 0) {
+                if (gnssData.isValid()) {
                     validDataCount++;
 
                     if (validDataCount >= updateFrequency) {
                         validDataCount = 0;
 
-                        int totalSatellites = gnssData.satellites.size();
+                        QString activeSatellites;
+                        int activeSatCount = 0;
                         double totalSNR = 0.0;
+                        for (const auto& sat : gnssData.satellites) {
+                            if (sat.is_active) {
+                                activeSatellites += QString("%1%2, ").arg(sat.talker_id).arg(sat.sat_id);
 
-                        for (const auto& satellite : gnssData.satellites) {
-                            totalSNR += satellite.snr;
+                                // Use the highest SNR
+                                int snr = std::max(sat.snr_1, sat.snr_2);
+                                if (snr != -1) {
+                                    totalSNR += snr;
+                                    activeSatCount++;
+                                }
+                            }
                         }
 
-                        double averageSNR = (totalSatellites > 0) ? totalSNR / totalSatellites : 0.0;
+                        // Calculate average SNR
+                        double avgSNR = (activeSatCount > 0) ? totalSNR / activeSatCount : 0;
+                        QString formattedData = QString("Local Time: %1\nLatitude: %2 %3\nLongitude: %4 %5\nSpeed: %6 km/h\nSatellites in view: %7, Active: %8")
+                            .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"))
+                            .arg(QString::number(gnssData.latitude_dd, 'g', 17)).arg(gnssData.ns_indicator)  
+                            .arg(QString::number(gnssData.longitude_dd, 'g', 17)).arg(gnssData.ew_indicator)  
+                            .arg(gnssData.speed_over_ground.toDouble() * 1.852, 0, 'f', 2)  // Convert knots to km/h
+                            .arg(gnssData.num_satellites)
+                            .arg(activeSatCount);  // Use the actual counted number
 
-                        QString formattedData;
+                        formattedData += QString("\nActive Satellites: %1\nAverage SNR: %2 dB")
+                            .arg(activeSatellites.trimmed().chopped(1))  // Remove trailing comma
+                            .arg(avgSNR, 0, 'f', 2);  // Display the average SNR
 
-                        QString dateStr = gnssData.date;
-                        QString yearStr = dateStr.mid(4, 2);
-                        int year = yearStr.toInt();
-                        year += (year < 70) ? 2000 : 1900;
-
-                        QDateTime utcDateTime = QDateTime::fromString(dateStr.left(4) + QString::number(year) + gnssData.utc_time, "ddMMyyyyhhmmss.zzz");
-                        utcDateTime.setTimeSpec(Qt::UTC);
-                        QDateTime localDateTime = utcDateTime.toLocalTime();
-
-                        double speed_knots = gnssData.speed_over_ground.toDouble();
-                        double speed_kmh = speed_knots * 1.852;
-                        double speed_mph = speed_knots * 1.15078;
-
-                        formattedData = QString("Local Date & Time: %1\nLatitude: %2 %3\nLongitude: %4 %5\nSpeed Over Ground: %6 knots, %7 km/h, %8 mph\nNumber of Satellites: %9\nAverage SNR: %10")
-                            .arg(localDateTime.toString("yyyy-MM-dd hh:mm:ss"))
-                            .arg(QString::number(gnssData.latitude_dd, 'g', 17))
-                            .arg(gnssData.ns_indicator)
-                            .arg(QString::number(gnssData.longitude_dd, 'g', 17)) 
-                            .arg(gnssData.ew_indicator)
-                            .arg(speed_knots, 0, 'f', 2)
-                            .arg(speed_kmh, 0, 'f', 2)
-                            .arg(speed_mph, 0, 'f', 2)
-                            .arg(totalSatellites)
-                            .arg(averageSNR, 0, 'f', 2);
-
-
-                        ui.infoTextBox->clear();
-                        ui.infoTextBox->append(formattedData);
-
+                        ui.infoTextBox->clear();  // Clear info box before displaying valid data
+                        ui.infoTextBox->setText(formattedData);
                         CSVUtils::writeDataToCsv(formattedData, recordingData, csvFile);
-
                         if (showingRealTimeLocation) {
-                            QString jsFormattedData = formattedData;
-                            jsFormattedData.replace("\n", "\\n").replace("'", "\\'");
                             QString jsCommand = QString("updateMarkerPosition(%1, %2, `%3`, %4);")
-                                .arg(gnssData.latitude_dd)
-                                .arg(gnssData.longitude_dd)
-                                .arg(jsFormattedData)
-                                .arg(averageSNR, 0, 'f', 2); 
+                                .arg(QString::number(gnssData.latitude_dd, 'g', 17))  // Full precision for latitude
+                                .arg(QString::number(gnssData.longitude_dd, 'g', 17))  // Full precision for longitude
+                                .arg(formattedData)  
+                                .arg(avgSNR, 0, 'f', 2);  // Pass average SNR for color update
                             webView->page()->runJavaScript(jsCommand);
-                        }
-
-                        if (showingRealTimeLocation) {
-                            ui.toggleRecordingButton->setEnabled(true);
                         }
                     }
                 }
+                else {
+                    ui.infoTextBox->clear();  
+                    QString rawDataMessage = QString("Invalid GNSS data received. Raw data: %1").arg(sentence);
+                    ui.infoTextBox->append(rawDataMessage);  // Display the invalid raw data
+                }
             }
             else {
-                qDebug() << "Failed to parse GNSS sentence.";
+                ui.infoTextBox->clear();  
+                QString rawDataMessage = QString("Failed to parse GNSS data. Raw data: %1").arg(sentence);
+                ui.infoTextBox->append(rawDataMessage);  // Display the invalid raw data if parsing fails
             }
         }
 
+        // Clear buffer if it gets too large
         if (buffer.size() > 4096) {
             buffer.clear();
         }
     }
-
 } // namespace SerialPortUtils

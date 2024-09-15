@@ -73,7 +73,6 @@
     </Link>
     <PostBuildEvent>
       <Command>xcopy /Y "$(ProjectDir)google_maps.html" "$(OutDir)*"
-xcopy /Y "$(ProjectDir)test.html" "$(OutDir)*"
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -87,7 +86,6 @@ xcopy /Y "$(ProjectDir)test.html" "$(OutDir)*"
     </Link>
     <PostBuildEvent>
       <Command>xcopy /Y "$(ProjectDir)google_maps.html" "$(OutDir)*"
-xcopy /Y "$(ProjectDir)test.html" "$(OutDir)*"
 </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>

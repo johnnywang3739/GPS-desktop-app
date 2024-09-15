@@ -46,7 +46,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-#define UART_BUFFER_SIZE 1024
+#define UART_BUFFER_SIZE 3000
 
 uint8_t rxBuffer[UART_BUFFER_SIZE];
 uint8_t rxData;
@@ -57,9 +57,9 @@ GNGGA_Data gngga_data;
 GNRMC_Data gnrmc_data;
 GNGLL_Data gngll_data;
 GNVTG_Data gnvtk_data;
+GSA_Talker_Data gsa_talker_gp, gsa_talker_gl, gsa_talker_ga, gsa_talker_gb;
 volatile uint8_t data_ready = 0;
 volatile uint32_t command_counter = 0;
-
 /* Global structure to hold all satellite data for the current PPS */
 SatelliteData satellite_data;
 
@@ -70,6 +70,8 @@ SatelliteData satellite_data;
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 void parse_data(void);
+void reset_satellite_data(void);
+void GNSS_data_to_PC(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -86,6 +88,8 @@ int _write(int fd, char* ptr, int len) {
   }
   return -1;
 }
+
+
 /* USER CODE END 0 */
 
 /**
@@ -141,7 +145,12 @@ int main(void)
 
 	if(parsing_complete)
 	{
-	  GNSS_data_to_PC();
+		if (satellite_data.num_satellites > 0)
+		{
+			GNSS_data_to_PC();  // Transmit to PC only if valid satellite data
+			GPS_data_debug();
+		}
+
 	  parsing_complete = 0;
 	  reset_satellite_data();  // Reset satellite data
 	}
@@ -221,6 +230,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         {
             sentence_ready = 1;
             rxBuffer[rxIndex] = '\0';
+            memset(&rxBuffer[rxIndex + 1], 0, UART_BUFFER_SIZE - rxIndex - 1);
             rxIndex = 0;
         }
         else
@@ -235,51 +245,68 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     }
 }
 
-void displayGNSSData(void) {
-
-	HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);
-
-    char buffer[512];
-
-    snprintf(buffer, sizeof(buffer),
-             "GNGGA: UTC Time: %s, Lat: %s %s, Lon: %s %s, Alt: %s %s, Chksum: %s\r\n",
-             gngga_data.utc_time, gngga_data.latitude, gngga_data.ns_indicator,
-             gngga_data.longitude, gngga_data.ew_indicator, gngga_data.altitude,
-             gngga_data.alt_units, gngga_data.checksum);
-    HAL_UART_Transmit(&huart3, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
-
-    snprintf(buffer, sizeof(buffer),
-             "GNRMC: UTC Time: %s, Status: %s, Lat: %s %s, Lon: %s %s, Speed: %s, Date: %s, Chksum: %s\r\n",
-             gnrmc_data.utc_time, gnrmc_data.status, gnrmc_data.latitude, gnrmc_data.ns_indicator,
-             gnrmc_data.longitude, gnrmc_data.ew_indicator, gnrmc_data.speed_over_ground,
-             gnrmc_data.date, gnrmc_data.checksum);
-    HAL_UART_Transmit(&huart3, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
-
-    snprintf(buffer, sizeof(buffer),
-             "GNGLL: Lat: %s %s, Lon: %s %s, UTC Time: %s, Status: %s, Chksum: %s\r\n",
-             gngll_data.latitude, gngll_data.ns_indicator, gngll_data.longitude, gngll_data.ew_indicator,
-             gngll_data.utc_time, gngll_data.status, gngll_data.checksum);
-    HAL_UART_Transmit(&huart3, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
-
-    snprintf(buffer, sizeof(buffer),
-             "GNVTG: COGT: %s %s, COGM: %s %s, SOGN: %s %s, SOGK: %s %s, Mode Ind: %s, Chksum: %s\r\n",
-             gnvtk_data.cogt, gnvtk_data.cogt_indicator, gnvtk_data.cogm, gnvtk_data.cogm_indicator,
-             gnvtk_data.sogn, gnvtk_data.sogn_indicator, gnvtk_data.sogk, gnvtk_data.sogk_indicator,
-             gnvtk_data.mode_indicator, gnvtk_data.checksum);
-    HAL_UART_Transmit(&huart3, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
-	HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
-}
 
 
-void reset_satellite_data(void)
-{
-    if (satellite_data.satellites)
-    {
+
+void reset_satellite_data(void) {
+    // Iterate over all satellites and reset SNR values where the second signal is missing
+    for (int i = 0; i < satellite_data.num_satellites; i++) {
+        SatelliteInfo *sat = &satellite_data.satellites[i];
+
+        // Handle GPS (L1, L5)
+        if (strncmp(sat->talker_id, "GP", 2) == 0) {
+            if (sat->num_signals == 1 && strcmp(sat->signals[0].signal_id, "L1") == 0) {
+                strncpy(sat->signals[1].signal_id, "L5", sizeof(sat->signals[1].signal_id));
+                sat->signals[1].snr = -1;
+                sat->num_signals = 2;
+            } else if (sat->num_signals == 1 && strcmp(sat->signals[0].signal_id, "L5") == 0) {
+                strncpy(sat->signals[1].signal_id, "L1", sizeof(sat->signals[1].signal_id));
+                sat->signals[1].snr = -1;
+                sat->num_signals = 2;
+            }
+        }
+        // Handle Galileo (E5a, E1)
+        else if (strncmp(sat->talker_id, "GA", 2) == 0) {
+            if (sat->num_signals == 1 && strcmp(sat->signals[0].signal_id, "E5a") == 0) {
+                strncpy(sat->signals[1].signal_id, "E1", sizeof(sat->signals[1].signal_id));
+                sat->signals[1].snr = -1;
+                sat->num_signals = 2;
+            } else if (sat->num_signals == 1 && strcmp(sat->signals[0].signal_id, "E1") == 0) {
+                strncpy(sat->signals[1].signal_id, "E5a", sizeof(sat->signals[1].signal_id));
+                sat->signals[1].snr = -1;
+                sat->num_signals = 2;
+            }
+        }
+        // Handle BDS (B1I, B2a)
+        else if (strncmp(sat->talker_id, "GB", 2) == 0) {
+            if (sat->num_signals == 1 && strcmp(sat->signals[0].signal_id, "B1I") == 0) {
+                strncpy(sat->signals[1].signal_id, "B2a", sizeof(sat->signals[1].signal_id));
+                sat->signals[1].snr = -1;
+                sat->num_signals = 2;
+            } else if (sat->num_signals == 1 && strcmp(sat->signals[0].signal_id, "B2a") == 0) {
+                strncpy(sat->signals[1].signal_id, "B1I", sizeof(sat->signals[1].signal_id));
+                sat->signals[1].snr = -1;
+                sat->num_signals = 2;
+            }
+        }
+        // GLONASS only has L1
+        else if (strncmp(sat->talker_id, "GL", 2) == 0) {
+            // Ensure that GLONASS only has one signal
+            if (sat->num_signals == 1 && strcmp(sat->signals[0].signal_id, "L1") == 0) {
+                sat->signals[1].snr = -1;
+            }
+        }
+    }
+
+    // Free the satellite data
+    if (satellite_data.satellites) {
         free(satellite_data.satellites);
         satellite_data.satellites = NULL;
     }
     satellite_data.num_satellites = 0;
 }
+
+
 void parse_data(void)
 {
     static GSV_Data gsv_data = {0};
@@ -302,12 +329,53 @@ void parse_data(void)
     {
         parseGNVTG((char *)rxBuffer, &gnvtk_data);
     }
+    else if (strncmp((char *)rxBuffer, "$GNGSA", 6) == 0)
+    {
+        char talker_id_str[2] = {0};
+        int comma_count = 0;
+        int buffer_len = strlen((char *)rxBuffer);
+        for (int i = 0; i < buffer_len; i++)
+        {
+            if (rxBuffer[i] == ',')
+            {
+                comma_count++;
+            }
+            if (rxBuffer[i] == '*' && comma_count >= 16) // The GSA sentence has 16 commas
+            {
+                if (i > 1 && rxBuffer[i - 1] != ',')
+                {
+                    talker_id_str[0] = rxBuffer[i - 1]; // Store the last character before '*'
+                    break;
+                }
+            }
+        }
+        int talker_id = atoi(talker_id_str);
+        switch (talker_id)
+        {
+            case 1:  // GPS
+                parseGNGSA((char *)rxBuffer, &gsa_talker_gp);
+                break;
+            case 2:  // GLONASS
+                parseGNGSA((char *)rxBuffer, &gsa_talker_gl);
+                break;
+            case 3:  // Galileo
+                parseGNGSA((char *)rxBuffer, &gsa_talker_ga);
+                break;
+            case 4:  // Beidou (BDS)
+                parseGNGSA((char *)rxBuffer, &gsa_talker_gb);
+                break;
+            default:
+                break;
+        }
+    }
+
     else if (strncmp((char *)rxBuffer, "$GPGSV", 6) == 0 || strncmp((char *)rxBuffer, "$GLGSV", 6) == 0 ||
              strncmp((char *)rxBuffer, "$GAGSV", 6) == 0 || strncmp((char *)rxBuffer, "$GBGSV", 6) == 0)
     {
         parseGSV((char *)rxBuffer, &gsv_data, &satellite_data);
     }
-    else if (strncmp((char *)rxBuffer, "$GQGSV,1,1,00,8", 15) == 0)
+    //else if (strncmp((char *)rxBuffer, "$GQGSV,1,1,00,8", 15) == 0)
+    else if (strncmp((char *)rxBuffer, "$GQGSV", 6) == 0)
     {
 
         parsing_complete = 1;
@@ -316,81 +384,6 @@ void parse_data(void)
     sentence_ready = 0;
     HAL_GPIO_WritePin(GPIOE, LD2_Pin, GPIO_PIN_RESET);
 }
-//
-//void GNSS_data_to_PC(void)
-//{
-//    HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);
-//    char buffer[512];
-//
-//    printf("Sending GNSS Data to PC...\r\n");
-//    printf("Number of Satellites: %d\r\n", satellite_data.num_satellites);
-//
-//    snprintf(buffer, sizeof(buffer),
-//             "Satellites: %d\r\n",
-//             satellite_data.num_satellites);
-//    HAL_UART_Transmit(&huart3, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
-//
-//    for (int i = 0; i < satellite_data.num_satellites; i++)
-//    {
-//        snprintf(buffer, sizeof(buffer),
-//                 "TalkerID: %s, ID: %d, Elevation: %d, Azimuth: %d, SNR: %d\r\n",
-//                 satellite_data.satellites[i].talker_id,
-//                 satellite_data.satellites[i].sat_id,
-//                 satellite_data.satellites[i].elevation,
-//                 satellite_data.satellites[i].azimuth,
-//                 satellite_data.satellites[i].snr);
-//        HAL_UART_Transmit(&huart3, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
-//    }
-//
-//    HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
-//}
-
-//void GNSS_data_to_PC(void) {
-//	HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);
-//    char buffer[256];
-//
-//    snprintf(buffer, sizeof(buffer),
-//             "%s,%s,%s,%s,%s,%s,%s\r\n",
-//             gnrmc_data.utc_time,   // UTC Time
-//             gnrmc_data.latitude,   // Latitude
-//             gnrmc_data.ns_indicator, // North/South Indicator
-//             gnrmc_data.longitude,  // Longitude
-//             gnrmc_data.ew_indicator, // East/West Indicator
-//             gnrmc_data.speed_over_ground, // Speed over ground
-//             gnrmc_data.date        // Date
-//            );
-//
-//    HAL_UART_Transmit(&huart3, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
-//    HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
-//}
-//void GNSS_data_to_PC(void)
-//{
-//    HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);
-//    char buffer[512];
-//
-//    printf("Sending GNSS Data to PC...\r\n");
-//    printf("Number of Satellites: %d\r\n", satellite_data.num_satellites);
-//
-//    snprintf(buffer, sizeof(buffer),
-//             "Satellites: %d\r\n",
-//             satellite_data.num_satellites);
-//    HAL_UART_Transmit(&huart3, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
-//
-//    for (int i = 0; i < satellite_data.num_satellites; i++)
-//    {
-//        snprintf(buffer, sizeof(buffer),
-//                 "TalkerID: %s, ID: %d, Elevation: %d, Azimuth: %d, SNR: %d\r\n",
-//                 satellite_data.satellites[i].talker_id,
-//                 satellite_data.satellites[i].sat_id,
-//                 satellite_data.satellites[i].elevation,
-//                 satellite_data.satellites[i].azimuth,
-//                 satellite_data.satellites[i].snr);
-//        HAL_UART_Transmit(&huart3, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
-//    }
-//
-//    HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
-//}
-
 void GNSS_data_to_PC(void)
 {
     HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);
@@ -398,43 +391,216 @@ void GNSS_data_to_PC(void)
     int offset = 0;
     int checksum = 0;
 
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "$");
-
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                       "%s,%s,%s,%s,%s,%s,%s",
-                       gnrmc_data.utc_time,   // UTC Time
-                       gnrmc_data.latitude,   // Latitude
-                       gnrmc_data.ns_indicator, // North/South Indicator
-                       gnrmc_data.longitude,  // Longitude
-                       gnrmc_data.ew_indicator, // East/West Indicator
+    // Transmit GNSS position data (GNRMC)
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "$%s,%s,%s,%s,%s,%s,%s",
+                       gnrmc_data.utc_time,       // UTC Time
+                       gnrmc_data.latitude,       // Latitude
+                       gnrmc_data.ns_indicator,   // N/S Indicator
+                       gnrmc_data.longitude,      // Longitude
+                       gnrmc_data.ew_indicator,   // E/W Indicator
                        gnrmc_data.speed_over_ground, // Speed over ground
-                       gnrmc_data.date        // Date
-                      );
+                       gnrmc_data.date);          // Date
 
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                       ",%d",
-                       satellite_data.num_satellites);
+    // Transmit number of satellites in view
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",%d", satellite_data.num_satellites);
 
-    for (int i = 0; i < satellite_data.num_satellites; i++)
-    {
+    // Transmit satellite data (talker_id, sat_id, elevation, azimuth, SignalID, SNR, SignalID, SNR)
+    for (int i = 0; i < satellite_data.num_satellites; i++) {
+        SatelliteInfo *sat = &satellite_data.satellites[i];
+        int snr_1 = sat->signals[0].snr;
+        int snr_2 = -1; // Default SNR value for second signal if not present
+
+        const char *signal_1_id = sat->signals[0].signal_id;
+        const char *signal_2_id = ""; // Set appropriate second signal ID
+
+        // Determine the second signal ID based on the GNSS system
+        if (strncmp(sat->talker_id, "GP", 2) == 0) {
+            signal_2_id = "L5";
+        } else if (strncmp(sat->talker_id, "GA", 2) == 0) {
+            signal_2_id = "E1";
+        } else if (strncmp(sat->talker_id, "GB", 2) == 0) {
+            signal_2_id = "B2a";
+        } else if (strncmp(sat->talker_id, "GL", 2) == 0) {
+            // GLONASS only has L1, so no second signal for GLONASS
+            signal_2_id = "L1";
+        }
+
+        // If the satellite has a second signal, update SNR
+        if (sat->num_signals > 1) {
+            snr_2 = sat->signals[1].snr;
+        }
+
         offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                           ",%s,%d,%d,%d,%d",
-                           satellite_data.satellites[i].talker_id,
-                           satellite_data.satellites[i].sat_id,
-                           satellite_data.satellites[i].elevation,
-                           satellite_data.satellites[i].azimuth,
-                           satellite_data.satellites[i].snr);
+                           ",%s,%d,%d,%d,%s,%d,%s,%d",
+                           sat->talker_id,          // Talker ID (e.g., GP, GL)
+                           sat->sat_id,             // Satellite ID
+                           sat->elevation,          // Elevation
+                           sat->azimuth,            // Azimuth
+                           signal_1_id,             // First Signal ID (e.g., L1, L5, etc.)
+                           snr_1,                   // First SNR
+                           signal_2_id,             // Second Signal ID (set as per GNSS system)
+                           snr_2);                  // Second SNR (-1 if missing)
+    }
+
+    // Transmit GSA data (GP, GL, GA, GB)
+    GSA_Talker_Data *gsa_talkers[] = { &gsa_talker_gp, &gsa_talker_gl, &gsa_talker_ga, &gsa_talker_gb };
+    const char *talker_ids[] = { "GP", "GL", "GA", "GB" };
+    int total_active_satellites = 0;
+
+    // Calculate total active satellites
+    for (int i = 0; i < 4; i++) {
+        total_active_satellites += gsa_talkers[i]->active_satellites;
+    }
+
+    // Transmit total active satellites
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",%d", total_active_satellites);
+
+    // Transmit active satellites data and DOP values for each system
+    for (int i = 0; i < 4; i++) {
+        GSA_Talker_Data *gsa = gsa_talkers[i];
+        if (gsa->active_satellites > 0) {
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",%s", talker_ids[i]);
+            for (int j = 0; j < gsa->active_satellites; j++) {
+                offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",%d", atoi(gsa->sat_ids[j]));
+            }
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",%s,%s,%s", gsa->pdop, gsa->hdop, gsa->vdop);
+        }
     }
 
     // Calculate checksum
-    for (int i = 1; i < offset; i++) { // Start at 1 to skip the '$'
+    for (int i = 1; i < offset; i++) {
+        checksum ^= buffer[i];  // XOR for checksum
+    }
+
+    // Append checksum and newline
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "*%02X\r\n", checksum);
+
+    // Transmit the buffer to the PC via UART
+    HAL_UART_Transmit(&huart3, (uint8_t *)buffer, offset, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
+}
+
+void GPS_data_debug(void)  // for debugging
+{
+    HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);  // Debugging LED ON
+    char buffer[2048];
+    int offset = 0;
+    int checksum = 0;
+
+    // Start building the GNSS data message
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "$");
+
+    // Transmit the timestamp (UTC time)
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%s", gnrmc_data.utc_time);  // UTC Time
+
+    // Transmit the number of satellites in view
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",SatInView:%d", satellite_data.num_satellites);
+
+    // Group satellites by their talker ID, similar to how it's done for ActiveSat
+    // GP (GPS satellites in view)
+    int gp_found = 0;
+    for (int i = 0; i < satellite_data.num_satellites; i++) {
+        if (strncmp(satellite_data.satellites[i].talker_id, "GP", 2) == 0) {
+            if (!gp_found) {
+                offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",GP");
+                gp_found = 1;
+            }
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",%d", satellite_data.satellites[i].sat_id);
+        }
+    }
+
+    // GL (GLONASS satellites in view)
+    int gl_found = 0;
+    for (int i = 0; i < satellite_data.num_satellites; i++) {
+        if (strncmp(satellite_data.satellites[i].talker_id, "GL", 2) == 0) {
+            if (!gl_found) {
+                offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",GL");
+                gl_found = 1;
+            }
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",%d", satellite_data.satellites[i].sat_id);
+        }
+    }
+
+    // GA (Galileo satellites in view)
+    int ga_found = 0;
+    for (int i = 0; i < satellite_data.num_satellites; i++) {
+        if (strncmp(satellite_data.satellites[i].talker_id, "GA", 2) == 0) {
+            if (!ga_found) {
+                offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",GA");
+                ga_found = 1;
+            }
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",%d", satellite_data.satellites[i].sat_id);
+        }
+    }
+
+    // GB (Beidou satellites in view)
+    int gb_found = 0;
+    for (int i = 0; i < satellite_data.num_satellites; i++) {
+        if (strncmp(satellite_data.satellites[i].talker_id, "GB", 2) == 0) {
+            if (!gb_found) {
+                offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",GB");
+                gb_found = 1;
+            }
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",%d", satellite_data.satellites[i].sat_id);
+        }
+    }
+
+    // Now append the GSA data (number of active satellites across different constellations)
+    // Calculate the total number of active satellites across all systems
+    int total_active_satellites = gsa_talker_gp.active_satellites +
+                                  gsa_talker_gl.active_satellites +
+                                  gsa_talker_ga.active_satellites +
+                                  gsa_talker_gb.active_satellites;
+
+    // Transmit the total number of active satellites
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",ActiveSat:%d", total_active_satellites);
+
+    // Transmit active satellite IDs for each constellation (GP, GL, GA, GB)
+
+    // Transmit GP (GPS) active satellite IDs
+    if (gsa_talker_gp.active_satellites > 0) {
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",GP");
+        for (int i = 0; i < gsa_talker_gp.active_satellites; i++) {
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",%s", gsa_talker_gp.sat_ids[i]);
+        }
+    }
+
+    // Transmit GL (GLONASS) active satellite IDs
+    if (gsa_talker_gl.active_satellites > 0) {
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",GL");
+        for (int i = 0; i < gsa_talker_gl.active_satellites; i++) {
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",%s", gsa_talker_gl.sat_ids[i]);
+        }
+    }
+
+    // Transmit GA (Galileo) active satellite IDs
+    if (gsa_talker_ga.active_satellites > 0) {
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",GA");
+        for (int i = 0; i < gsa_talker_ga.active_satellites; i++) {
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",%s", gsa_talker_ga.sat_ids[i]);
+        }
+    }
+
+    // Transmit GB (Beidou) active satellite IDs
+    if (gsa_talker_gb.active_satellites > 0) {
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",GB");
+        for (int i = 0; i < gsa_talker_gb.active_satellites; i++) {
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",%s", gsa_talker_gb.sat_ids[i]);
+        }
+    }
+
+    // Calculate checksum (excluding the initial '$')
+    for (int i = 1; i < offset; i++) {
         checksum ^= buffer[i];
     }
 
-    // Add checksum and end of line
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "*%02X&\r\n", checksum);
+    // Append checksum and newline
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "*%02X\r\n", checksum);
 
-    HAL_UART_Transmit(&huart3, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+    // Transmit the buffer to the PC
+    HAL_UART_Transmit(&huart5, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+
+    // Toggle LED off after transmission
     HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
 }
 

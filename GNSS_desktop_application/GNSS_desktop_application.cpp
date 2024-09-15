@@ -26,6 +26,7 @@
 #include <QFileDialog>
 #include <QStandardPaths>
 #include <QCloseEvent>
+#include <QIcon>
 // user include end
 
 
@@ -33,7 +34,8 @@ GNSS_desktop_application::GNSS_desktop_application(QWidget* parent)
     : QMainWindow(parent), serial(new QSerialPort(this)), showingRealTimeLocation(false), recordingData(false)
 {
     ui.setupUi(this);
-
+    QString iconPath = QCoreApplication::applicationDirPath() + "/GPSViewer.ico";
+    setWindowIcon(QIcon(iconPath));
     baudRate = 921600;
     comPort = "COM55";
     fileLocation = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
@@ -114,13 +116,11 @@ void GNSS_desktop_application::onConnectButtonClicked()
     if (serial->isOpen()) {
         serial->close();
         ui.connectButton->setText("Connect");
-
-        // Enable settings controls when disconnected
         ui.baudRateLineEdit->setEnabled(true);
         ui.comPortLineEdit->setEnabled(true);
         ui.fileLocationLineEdit->setEnabled(true);
-        ui.fileNameLineEdit->setEnabled(true); // Enable File Name input
-        ui.browseButton->setEnabled(true);     // Enable Browse button
+        ui.fileNameLineEdit->setEnabled(true);
+        ui.browseButton->setEnabled(true);     
         ui.updateFrequencyComboBox->setEnabled(true);
 
         if (recordingData) {
@@ -179,7 +179,7 @@ void GNSS_desktop_application::onConnectButtonClicked()
                 return;
             }
             QTextStream out(&newFile);
-            out << "Date,Time,Latitude,N/S Indicator,Longitude,E/W Indicator,Speed (knots),Speed (km/h),Speed (mph),Number of Satellites,Average SNR\n";
+            out << "Date,Time,Latitude,N/S Indicator,Longitude,E/W Indicator,Speed (km/h),Number of Satellites in View,Number of Active Satellites,Active Satellite IDs,Average SNR\n";
             newFile.close();
         }
         else {
@@ -193,11 +193,11 @@ void GNSS_desktop_application::onConnectButtonClicked()
             return;
         }
         QTextStream out(&file);
-        out << "Date,Time,Latitude,N/S Indicator,Longitude,E/W Indicator,Speed (knots),Speed (km/h),Speed (mph),Number of Satellites,Average SNR\n";
+        // Write the new CSV header
+        out << "Date,Time,Latitude,N/S Indicator,Longitude,E/W Indicator,Speed (km/h),Number of Satellites in View,Number of Active Satellites,Active Satellite IDs,Average SNR\n";
         file.close();
     }
 
-    // Continue with the rest of the connection logic...
     QString baudRateText = ui.baudRateLineEdit->text();
     bool ok;
     baudRate = baudRateText.toInt(&ok);
@@ -232,8 +232,8 @@ void GNSS_desktop_application::onConnectButtonClicked()
         ui.baudRateLineEdit->setEnabled(false);
         ui.comPortLineEdit->setEnabled(false);
         ui.fileLocationLineEdit->setEnabled(false);
-        ui.fileNameLineEdit->setEnabled(false); // Disable File Name input
-        ui.browseButton->setEnabled(false);     // Disable Browse button
+        ui.fileNameLineEdit->setEnabled(false); 
+        ui.browseButton->setEnabled(false);  
         ui.updateFrequencyComboBox->setEnabled(false);
 
         ui.showRealTimeButton->setEnabled(true);
@@ -248,6 +248,7 @@ void GNSS_desktop_application::onConnectButtonClicked()
         QMessageBox::warning(this, "Input Error", "Sorry, unable to connect with serial port.");
     }
 }
+
 
 
 void GNSS_desktop_application::onToggleRecordingButtonClicked()
@@ -276,17 +277,18 @@ void GNSS_desktop_application::onToggleRecordingButtonClicked()
     }
 }
 
-void GNSS_desktop_application::changeLocation(double lat, double lng, double averageSNR)
+void GNSS_desktop_application::changeLocation(double lat, double lng, double SNR)
 {
     if (showingRealTimeLocation) {
         QString jsCommand = QString("updateMarkerPosition(%1, %2, '%3', %4);")
             .arg(QString::number(lat, 'g', 17))  // Full precision for latitude
             .arg(QString::number(lng, 'g', 17))  // Full precision for longitude
             .arg(CSVUtils::createMarkerTitle(gnssData))
-            .arg(averageSNR, 0, 'f', 2);  // Ensure the SNR is passed as a formatted string number
+            .arg(SNR, 0, 'f', 2);
         webView->page()->runJavaScript(jsCommand);
     }
 }
+
 
 void GNSS_desktop_application::onShowRealTimeButtonClicked()
 {
@@ -312,8 +314,7 @@ void GNSS_desktop_application::onShowRealTimeButtonClicked()
 		}
     }
 }
-void GNSS_desktop_application::onLoadHistoricalDataButtonClicked()
-{
+void GNSS_desktop_application::onLoadHistoricalDataButtonClicked() {
     QString fileName = QFileDialog::getOpenFileName(this, tr("Open CSV File"), "", tr("CSV Files (*.csv)"));
 
     if (fileName.isEmpty()) {
@@ -326,11 +327,31 @@ void GNSS_desktop_application::onLoadHistoricalDataButtonClicked()
         return;
     }
 
+    // Disconnect Serial Port if connected
+    if (serial->isOpen()) {
+        serial->close();
+        ui.connectButton->setText("Connect");
+        ui.baudRateLineEdit->setEnabled(true);
+        ui.comPortLineEdit->setEnabled(true);
+        ui.fileLocationLineEdit->setEnabled(true);
+        ui.fileNameLineEdit->setEnabled(true);
+        ui.browseButton->setEnabled(true);
+        ui.updateFrequencyComboBox->setEnabled(true);
+        ui.showRealTimeButton->setEnabled(false);
+        ui.toggleRecordingButton->setEnabled(false);
+        ui.showRealTimeButton->setText("Show Real-Time Location");
+        showingRealTimeLocation = false;
+        gnssData.clear();
+        ui.infoTextBox->append("Serial port has been disconnected.");
+    }
+
     QTextStream in(&file);
     QStringList headers = in.readLine().split(',');
-    if (headers.size() < 11 || headers[0] != "Date" || headers[1] != "Time" || headers[2] != "Latitude" || headers[3] != "N/S Indicator" ||
-        headers[4] != "Longitude" || headers[5] != "E/W Indicator" || headers[6] != "Speed (knots)" || headers[7] != "Speed (km/h)" ||
-        headers[8] != "Speed (mph)" || headers[9] != "Number of Satellites" || headers[10] != "Average SNR") {
+
+    if (headers.size() < 11 || headers[0] != "Date" || headers[1] != "Time" || headers[2] != "Latitude" ||
+        headers[3] != "N/S Indicator" || headers[4] != "Longitude" || headers[5] != "E/W Indicator" ||
+        headers[6] != "Speed (km/h)" || headers[7] != "Number of Satellites in View" ||
+        headers[8] != "Number of Active Satellites" || headers[9] != "Active Satellite IDs" || headers[10] != "Average SNR") {
         QMessageBox::warning(this, "File Format Error", "The selected file does not match the expected CSV format.");
         return;
     }
@@ -349,44 +370,73 @@ void GNSS_desktop_application::onLoadHistoricalDataButtonClicked()
 
     for (const QString& line : lines) {
         if (line.trimmed().isEmpty()) continue;
-
         QStringList fields = line.split(',');
-        if (fields.size() != 11) continue;
 
-        double lat = fields[2].toDouble();
-        double lng = fields[4].toDouble();
-        double averageSNR = fields[10].toDouble();
-        QDateTime timestamp = QDateTime::fromString(fields[0] + " " + fields[1], "yyyy-MM-dd hh:mm:ss");
-        if (timestamp.isValid()) {
-            if (dataPointCount == 0) {
-                firstTimestamp = timestamp;
-            }
-            lastTimestamp = timestamp;
+        // Check if we have the correct number of fields (11 in this case)
+        if (fields.size() != 11) {
+            qDebug() << "Skipping line due to incorrect number of fields: " << line;
+            continue;
         }
 
+        // Parse basic GNSS data
+        double lat = fields[2].toDouble();
+        double lng = fields[4].toDouble();
+        double speedKmh = fields[6].toDouble();   // Speed in km/h
+        int satellitesInView = fields[7].toInt();
+        int activeSatellitesCount = fields[8].toInt();
+        QString activeSatellitesIDs = fields[9].replace(";", ","); 
+        double SNR = fields[10].split(" ").value(0).toDouble();
+        QDateTime timestamp = QDateTime::fromString(fields[0] + " " + fields[1], "yyyy-MM-dd hh:mm:ss");
+        if (!timestamp.isValid()) {
+            qDebug() << "Skipping line due to invalid timestamp: " << line;
+            continue;  // Skip this line if the timestamp is invalid
+        }
+        if (dataPointCount == 0) {
+            firstTimestamp = timestamp;
+        }
+        lastTimestamp = timestamp;
+
         dataPointCount++;
+
+        // Create a GNSSData object to populate the title
         GNSSData historicalData;
+        historicalData.date = fields[0];
+        historicalData.utc_time = fields[1];
         historicalData.latitude_dd = lat;
         historicalData.longitude_dd = lng;
         historicalData.ns_indicator = fields[3];
         historicalData.ew_indicator = fields[5];
-        historicalData.num_satellites = fields[9].toInt();
+        historicalData.speed_over_ground = QString::number(speedKmh);  // Store speed as string
+        historicalData.num_satellites = satellitesInView;
+        historicalData.total_active_satellites = activeSatellitesCount;
 
-        SatelliteInfo satInfo;
-        satInfo.snr = averageSNR;
-        historicalData.satellites.push_back(satInfo);
+        // Parse and store the active satellite info
+        QStringList activeSatIDs = activeSatellitesIDs.split(", ");  // Split using semicolons
+        for (const QString& satID : activeSatIDs) {
+            SatelliteInfo satInfo;
+            satInfo.is_active = true;  // Mark this satellite as active
+            satInfo.talker_id = satID.left(2);  // Extract the talker ID (e.g., "GP")
+            satInfo.sat_id = satID.mid(2).toInt();  // Extract the satellite ID (e.g., "2")
+            satInfo.snr_1 = SNR;  
+            satInfo.snr_2 = -1;  // Default second signal is invalid
+
+            historicalData.satellites.push_back(satInfo);
+        }
+
+        // Generate the marker title
         QString title = CSVUtils::createMarkerTitle(historicalData);
         title.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+
         jsCommand += QString("addHistoricalMarker(%1, %2, \"%3\", %4);")
             .arg(QString::number(lat, 'g', 17))  // Full precision for latitude
             .arg(QString::number(lng, 'g', 17))  // Full precision for longitude
             .arg(title)
-            .arg(averageSNR);
+            .arg(SNR);
     }
 
+    // Execute JavaScript to add all historical markers on the map
     if (!jsCommand.isEmpty()) {
         qDebug() << "JavaScript Command: " << jsCommand;
-
         webView->page()->runJavaScript(jsCommand);
     }
 
@@ -405,27 +455,6 @@ void GNSS_desktop_application::onLoadHistoricalDataButtonClicked()
     else {
         ui.infoTextBox->append("Unable to calculate recording duration.");
     }
-    if (recordingData) {
-        recordingData = false;
-        ui.toggleRecordingButton->setText("Start Recording");
-        if (csvFile.isOpen()) {
-            csvFile.close();
-        }
-        ui.mapWidget->setStyleSheet("");
-    }
-
-    if (serial->isOpen()) {
-        serial->close();
-        ui.connectButton->setText("Connect");
-    }
-
-    if (showingRealTimeLocation) {
-        QString jsHideCommand = "hideRealTimeMarker();";
-        webView->page()->runJavaScript(jsHideCommand);
-        showingRealTimeLocation = false;
-        ui.showRealTimeButton->setText("Show Real-Time Location");
-        ui.toggleRecordingButton->setEnabled(false);
-    }
 
     QString jsShowHistoricalCommand = "showHistoricalMarkers();";
     webView->page()->runJavaScript(jsShowHistoricalCommand);
@@ -434,13 +463,13 @@ void GNSS_desktop_application::onLoadHistoricalDataButtonClicked()
 
 void GNSS_desktop_application::onClearMapButtonClicked()
 {
-    QString jsClearCommand = "clearHistoricalMarkers();"; 
+    QString jsClearCommand = "clearHistoricalMarkers();";
     webView->page()->runJavaScript(jsClearCommand);
 
+    QString jsHideCommand = "hideRealTimeMarker();";
+    webView->page()->runJavaScript(jsHideCommand);
 
     if (showingRealTimeLocation) {
-        QString jsHideCommand = "hideRealTimeMarker();";
-        webView->page()->runJavaScript(jsHideCommand);
         showingRealTimeLocation = false;
         ui.showRealTimeButton->setText("Show Real-Time Location");
         ui.toggleRecordingButton->setEnabled(false);

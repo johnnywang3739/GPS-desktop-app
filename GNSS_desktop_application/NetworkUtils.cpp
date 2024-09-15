@@ -10,10 +10,8 @@
 void NetworkUtils::checkInternetQuality(QWebEngineView* webView, Ui::GNSS_desktop_applicationClass& ui) {
     QNetworkAccessManager* networkManager = new QNetworkAccessManager(webView);
 
-    static bool hadInternet = true;  // Static variable to track internet status
-
-    // Step 1: Measure Latency
-    QNetworkRequest pingRequest(QUrl("https://www.google.com"));
+    static bool hadInternet = true;  
+    QNetworkRequest pingRequest(QUrl("http://1.1.1.1")); 
     QElapsedTimer timer;
     timer.start();
 
@@ -42,10 +40,10 @@ void NetworkUtils::checkInternetQuality(QWebEngineView* webView, Ui::GNSS_deskto
             QString jsCommand = QString("updateWifiSignalIcon(%1);").arg(signalStrength);
             webView->page()->runJavaScript(jsCommand);
 
-            if (!hadInternet) {  // If previously no internet, but now there is
-                ui.infoTextBox->append("Internet connection restored. Reloading map...");
-                webView->reload();  // Reload the map
-                hadInternet = true; // Update status to reflect internet is now available
+            if (!hadInternet) {  
+                ui.infoTextBox->append("Internet connection restored.");
+                ui.infoTextBox->clear();
+                hadInternet = true; 
             }
         }
         else {
@@ -54,7 +52,7 @@ void NetworkUtils::checkInternetQuality(QWebEngineView* webView, Ui::GNSS_deskto
             webView->page()->runJavaScript(jsCommand);
             ui.infoTextBox->append("No internet! Check network connection!");
 
-            hadInternet = false;  // Update status to reflect internet is not available
+            hadInternet = false;  
         }
 
         pingReply->deleteLater();
