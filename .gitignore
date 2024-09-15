@@ -2,3 +2,23 @@
 x64/
 enc_temp_folder/
 GNSS_desktop_application/x64/
+
+ST-firmware/Debug/
+
+# Log files
+ST-firmware/*.log
+
+# Applications
+ST-firmware/*.app
+ST-firmware/*.exe
+ST-firmware/*.war
+ST-firmware/*.launch
+ST-firmware/*.ld
+
+# Large media files
+ST-firmware/*.mp4
+ST-firmware/*.tiff
+ST-firmware/*.avi
+ST-firmware/*.flv
+ST-firmware/*.mov
+ST-firmware/*.wmv
