@@ -2,6 +2,17 @@
 
 This GNSS Desktop Application is a tool for viewing real-time and historical GPS data on a Google Maps interface. It allows users to connect to a GNSS device via a serial port, visualize real-time location data, load historical GPS data from CSV files, and manage data display on the map.
 
+## Application Preview
+
+![App View](app_view.png)
+
+## Live Demonstration
+
+Watch the following video to see how the application works in real-time:
+
+[![Real-Time Video](https://img.youtube.com/vi/NclDKHt1UJ4/maxresdefault.jpg)](https://youtu.be/NclDKHt1UJ4)  
+*Click to watch the video.*
+
 ## Features
 
 - **Real-Time GPS Data Visualization**: Connect to a GNSS device using a serial port and visualize real-time location updates on a Google Map.
