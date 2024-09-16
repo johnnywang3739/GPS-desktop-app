@@ -17,6 +17,10 @@ This software module is specifically designed to parse NMEA sentences from the Q
 - **VTG (Track Made Good):** Speed and course over the ground.
 - **GSA (Satellite Status):** Overall satellite reception quality and DOP values.
 
+## Tribbute: 
+
+[Quectel LC29H GNSS Protocol Specification](https://www.mouser.com/datasheet/2/1052/Quectel_LC29HLC79H_GNSS_Protocol_Specification_V1_-2932229.pdf?srsltid=AfmBOooRih5Fv_EDCWpqfFYRtB-kn0RbcsSrl3x-PutUOxSe8UUXSEj_)
+
 ## Usage
 
 To integrate this parser into your project, include `GPSUtils.h`, and use the provided functions to decode NMEA sentences:
@@ -26,3 +30,4 @@ To integrate this parser into your project, include `GPSUtils.h`, and use the pr
 
 GSV_Data gsvData;
 parseGSV("GSV sentence", &gsvData);
+
