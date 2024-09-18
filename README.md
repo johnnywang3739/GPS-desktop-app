@@ -4,7 +4,7 @@ This GNSS Desktop Application is a tool for viewing real-time and historical GPS
 
 ## Application Preview
 
-![App View](app_view.png)
+![App View](app_demo.png)
 
 ## Live Demonstration
 
