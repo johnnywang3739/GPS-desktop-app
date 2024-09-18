@@ -25,11 +25,14 @@ Watch the following video to see how the application works in real-time:
 
 ## STM32 Firmware
 
-The GNSS Desktop Application interfaces with a Quectel LC29H GNSS module via a serial port, and to handle this communication, firmware has been developed for an STM32 microcontroller. The STM32 acts as a transmitter, parsing and formatting each NMEA data pulse into one sentence for the desktop application to process. The firmware is available in the repository:
+The GNSS Desktop Application interfaces with a Quectel LC29H GNSS module via a serial port. To efficiently handle this communication, I developed firmware for an STM32 microcontroller using DMA to process UART data pulses in real-time. This method ensures reliable, high-performance handling of NMEA sentence streams.
 
+I also implemented `GPSUtils.c` and `GPSUtils.h` to parse various NMEA sentences, such as GGA, GSA, GSV, RMC, and GLL, from the GNSS module. These utilities allow the extraction of essential data, including latitude, longitude, and active satellites, and provide more comprehensive features than existing libraries like TinyGPS.
+
+The firmware and GPS utilities are available in the repository:
 - [STM32 Firmware](https://github.com/johnnywang3739/GPS-desktop-app/tree/main/ST-firmware)
 
-Make sure to upload the firmware to your STM32 board to ensure proper communication with the GNSS module.
+Ensure the firmware is uploaded to your STM32 board for proper communication with the GNSS module.
 
 ## Code Structure
 
